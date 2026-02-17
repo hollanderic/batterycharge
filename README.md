@@ -1,13 +1,16 @@
-# Rigol DP832 Battery Charger Script
+# Rigol DP832 / DP2031 Battery Charger Script
 
-This Python script facilitates charging a battery using a Rigol DP832 programmable DC power supply. It allows users to set charging parameters, logs critical charging data, and provides real-time visualization of the battery voltage.
+This Python script facilitates charging a battery using a Rigol DP832 or DP2031 programmable DC power supply. It allows users to set charging parameters, logs critical charging data, and provides real-time visualization of the battery voltage.
 
 ## Features
 
 - **Configurable Charging:** Set desired charge current, charge voltage, and a cutoff current via command-line arguments.
 - **Data Logging:** Records timestamp, elapsed time, measured voltage, measured current, cumulative Amp-hours (Ah), and cumulative Watt-hours (Wh) to a specified CSV file.
 - **Real-time Voltage Plotting:** Displays a live graph of the battery voltage during charging with a dark, oscilloscope-like theme.
-- **Automatic Cutoff:** Automatically stops the charging process when the measured current drops below the defined cutoff current, which is essential for safely charging battery chemistries like Li-ion (CC/CV method).
+- **Automatic Cutoff:** Automatically stops the charging process when the measured current drops below the defined cutoff current.
+- **Parallel Mode (DP2031):** Supports high-current charging by enabling parallel mode on the DP2031.
+- **Voltage Sense (DP2031):** Supports remote voltage sensing for accurate voltage delivery at the load.
+- **Unique Log Files:** Automatically increments log filenames (e.g., `log1.csv`) if the specified file already exists.
 - **Console Output:** Echoes current voltage, current, and elapsed time to the console once per second.
 
 ## Requirements
@@ -15,7 +18,7 @@ This Python script facilitates charging a battery using a Rigol DP832 programmab
 - Python 3.x
 - `pyvisa`: Python module for VISA (Virtual Instrument Software Architecture)
 - `matplotlib`: Python plotting library
-- A Rigol DP832 series programmable DC power supply
+- A Rigol DP832 or DP2031 series programmable DC power supply
 - A VISA backend installed (e.g., NI-VISA, PyVISA-py, Keysight VISA) for `pyvisa` to communicate with the instrument.
 
 ## Installation
@@ -48,17 +51,33 @@ python battery_charger.py
     --resource_name "TCPIP0::192.168.1.1::INSTR"
 ```
 
+For **DP2031** with parallel mode and sense enabled:
+
+```bash
+python battery_charger.py 
+    --charge_current 5.0 
+    --charge_voltage 12.0 
+    --cutoff_current 0.1 
+    --log_file charge_log.csv 
+    --model DP2031
+    --parallel
+    --sense
+    --resource_name "TCPIP0::..."
+```
+
 ### Command-line Arguments:
 
 -   `--charge_current <float>` (Required): The maximum current (in Amps) the power supply will provide during charging.
 -   `--charge_voltage <float>` (Required): The target voltage (in Volts) the power supply will maintain.
 -   `--cutoff_current <float>` (Required): The current (in Amps) at which the charging process should terminate. Charging stops when the measured current drops below this value.
--   `--log_file <str>` (Required): The path and filename for the CSV file where charging data will be logged.
--   `--channel <int>` (Optional, default: `1`): The output channel of the Rigol DP832 to use for charging (e.g., `1`, `2`, or `3`).
--   `--resource_name <str>` (Required): The VISA resource name for your Rigol DP832 instrument.
-    -   **For TCP/IP (Ethernet):** Use a format like `TCPIP0::IP_ADDRESS::INSTR` (e.g., `"TCPIP0::192.168.1.1::INSTR"`). Replace `IP_ADDRESS` with your instrument's IP address.
-    -   **For USB:** Use a format like `USB0::VendorID::ProductID::SerialNumber::INSTR` (e.g., `"USB0::0x1AB1::0x0E11::DP8C123456789::INSTR"`).
-    -   You can use the `pyvisa-info` command in your terminal to list available VISA resources.
+-   `--log_file <str>` (Required): The path and filename for the CSV file where charging data will be logged. If the file exists, a number will be appended/incremented (e.g., `log.csv` -> `log1.csv`).
+-   `--channel <int>` (Optional, default: `1`): The output channel of the power supply to use for charging.
+-   `--resource_name <str>` (Required): The VISA resource name for your instrument.
+    -   **For TCP/IP (Ethernet):** Use a format like `TCPIP0::IP_ADDRESS::INSTR`.
+    -   **For USB:** Use a format like `USB0::VendorID::ProductID::SerialNumber::INSTR`.
+-   `--model <str>` (Optional): Explicitly specify the model (`DP832` or `DP2031`). If not provided, the script attempts to auto-detect via `*IDN?`.
+-   `--parallel` (Optional): Enable parallel channel mode (DP2031 only). When enabled, channel is forced to 1.
+-   `--sense` (Optional): Enable remote voltage sensing (DP2031 only).
 
 ## Log File Format
 
