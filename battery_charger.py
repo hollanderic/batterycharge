@@ -104,8 +104,8 @@ class RigolDP2031(RigolPSU):
 
     def enable_sense_mode(self, channel, state):
         print(f"{'Enabling' if state else 'Disabling'} Voltage Sense for CH{channel}...")
-        # DP2000 series uses :OUTPut<n>:SENSe <bool>
-        self.instrument.write(f":OUTP{channel}:SENS {'ON' if state else 'OFF'}")
+        # DP2000 series uses :SYST:SENS CH<n>, <bool>
+        self.instrument.write(f":SYST:SENS CH{channel}, {'ON' if state else 'OFF'}")
 
     def get_measurements(self, channel):
         if getattr(self, 'is_parallel', False):
