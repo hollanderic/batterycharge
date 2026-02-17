@@ -62,17 +62,37 @@ python battery_charger.py
     --model DP2031
     --parallel
     --sense
-    --resource_name "TCPIP0::..."
+```bash
+python battery_charger.py --config my_charge_profile.conf
+```
+
+Or combine config with overrides:
+
+```bash
+python battery_charger.py --config my_charge_profile.conf --charge_current 2.0
+```
+
+### Configuration File Format (.conf)
+A simple key=value text file:
+
+```ini
+# Charging Li-ion cell
+charge_current = 1.0
+charge_voltage = 4.2
+cutoff_current = 0.05
+log_file = my_log.csv
+resource_name = USB0::0x1AB1::...
 ```
 
 ### Command-line Arguments:
 
--   `--charge_current <float>` (Required): The maximum current (in Amps) the power supply will provide during charging.
--   `--charge_voltage <float>` (Required): The target voltage (in Volts) the power supply will maintain.
--   `--cutoff_current <float>` (Required): The current (in Amps) at which the charging process should terminate. Charging stops when the measured current drops below this value.
--   `--log_file <str>` (Required): The path and filename for the CSV file where charging data will be logged. If the file exists, a number will be appended/incremented (e.g., `log.csv` -> `log1.csv`).
--   `--channel <int>` (Optional, default: `1`): The output channel of the power supply to use for charging.
--   `--resource_name <str>` (Required): The VISA resource name for your instrument.
+-   `--config <str>` (Optional): Path to a configuration file containing default values.
+-   `--charge_current <float>` (Required if not in config): The maximum current (in Amps) the power supply will provide during charging.
+-   `--charge_voltage <float>` (Required if not in config): The target voltage (in Volts) the power supply will maintain.
+-   `--cutoff_current <float>` (Required if not in config): The current (in Amps) at which the charging process should terminate.
+-   `--log_file <str>` (Required if not in config): The path and filename for the CSV file.
+-   `--channel <int>` (Optional, default: `1`): The output channel.
+-   `--resource_name <str>` (Required if not in config): The VISA resource name.
     -   **For TCP/IP (Ethernet):** Use a format like `TCPIP0::IP_ADDRESS::INSTR`.
     -   **For USB:** Use a format like `USB0::VendorID::ProductID::SerialNumber::INSTR`.
 -   `--model <str>` (Optional): Explicitly specify the model (`DP832` or `DP2031`). If not provided, the script attempts to auto-detect via `*IDN?`.

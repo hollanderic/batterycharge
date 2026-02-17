@@ -113,5 +113,74 @@ class TestUniqueFilename(unittest.TestCase):
         with patch('os.path.exists', side_effect=lambda p: p in ["log2.csv", "log3.csv"]):
             self.assertEqual(get_unique_filename("log2.csv"), "log4.csv")
 
+class TestConfigSupport(unittest.TestCase):
+    def setUp(self):
+        # We need to clean up patches because they might interfere with imports if we were importing inside tests
+        pass
+
+    def test_load_config(self):
+        from battery_charger import load_config
+        with patch("builtins.open", unittest.mock.mock_open(read_data="key=value\n#comment\nnum=123")) as mock_file:
+            with patch("os.path.exists", return_value=True):
+                config = load_config("fake.conf")
+                self.assertEqual(config.get("key"), "value")
+                self.assertEqual(config.get("num"), "123")
+                self.assertIsNone(config.get("#comment"))
+
+    def test_args_precedence(self):
+        # Test that CLI overrides Config
+        from battery_charger import main
+        
+        # Mock load_config to return some defaults
+        config_data = {
+            'charge_current': '1.0',
+            'charge_voltage': '5.0',
+            'cutoff_current': '0.1',
+            'log_file': 'config_log.csv',
+            'resource_name': 'USB::CONFIG'
+        }
+        
+        # We need to mock sys.argv, os.path.exists (for config file check), open (for reading config), 
+        # and ALL the hardware calls (RigolPSU init etc) because main() runs them.
+        # Alternatively, run main() but expect it to fail safely or just check args parsing logic if we extract it?
+        # Since main() is monolithic, we mock everything inside it.
+        
+        # Easier: Mock argparse.ArgumentParser.parse_args to return what we want? NO, we want to TEST parsing logic.
+        
+        # Let's mock the internal components of main:
+        # 1. load_config (we can patch battery_charger.load_config)
+        # 2. RigolPSU (to avoid connection)
+        # 3. plt (to avoid plotting)
+        
+        with patch('battery_charger.load_config', return_value=config_data):
+            with patch('sys.argv', ['battery_charger.py', '--config', 'test.conf', '--charge_current', '2.0']): # CLI overrides current
+                with patch('battery_charger.RigolPSU') as MockPSU, \
+                     patch('battery_charger.RigolDP832'), \
+                     patch('battery_charger.RigolDP2031'), \
+                     patch('matplotlib.pyplot.subplots', return_value=(MagicMock(), MagicMock())), \
+                     patch('matplotlib.pyplot.show'), \
+                     patch('matplotlib.animation.FuncAnimation'):
+                     
+                    # We need to verify what args were actually parsed.
+                    # Since main() doesn't return args, we can spy on RigolPSU initialization or set_channel_settings
+                    
+                    try:
+                        battery_charger.main()
+                    except Exception as e:
+                       self.fail(f"Main failed with: {e}") 
+                    
+                    # Verify calls using the CLI override value (2.0) not config (1.0)
+                    # And verify usage of config value for voltage (5.0)
+                    
+                    # RigolPSU instantiated with resource from config?
+                    # Note: code uses base_psu = RigolPSU(args.resource_name)
+                    MockPSU.assert_called_with('USB::CONFIG')
+                    
+                    # Check method calls on the instance
+                    instance = MockPSU.return_value
+                    # set_channel_settings(channel, voltage, current)
+                    # CLI overridden current=2.0, Config voltage=5.0
+                    instance.set_channel_settings.assert_called_with(1, 5.0, 2.0)
+
 if __name__ == '__main__':
     unittest.main()

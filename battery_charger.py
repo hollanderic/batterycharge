@@ -36,6 +36,32 @@ def get_unique_filename(filepath):
     
     return filepath
 
+def load_config(config_path):
+    """
+    Parses a simple key=value config file.
+    Lines starting with # are comments.
+    """
+    config = {}
+    if not os.path.exists(config_path):
+        print(f"Warning: Configuration file not found: {config_path}")
+        return config
+
+    try:
+        with open(config_path, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                if '=' in line:
+                    key, value = line.split('=', 1)
+                    key = key.strip()
+                    value = value.strip()
+                    if key:
+                        config[key] = value
+    except Exception as e:
+        print(f"Error reading configuration file: {e}")
+    return config
+
 class RigolPSU:
     def __init__(self, resource_name):
         self.rm = pyvisa.ResourceManager()
@@ -94,20 +120,66 @@ class RigolDP2031(RigolPSU):
 
 
 def main():
+    # First pass: Check for config file argument only
+    pre_parser = argparse.ArgumentParser(add_help=False)
+    pre_parser.add_argument("--config", type=str, help="Path to configuration file (.conf)")
+    # Parse known args to find --config, ignore the rest for now
+    pre_args, _ = pre_parser.parse_known_args()
+
+    # Load config defaults if specified
+    defaults = {}
+    if pre_args.config:
+        defaults = load_config(pre_args.config)
+
+    # Main parser
     parser = argparse.ArgumentParser(description="Battery charger for Rigol DP832 / DP2031")
-    parser.add_argument("--charge_current", type=float, required=True, help="Charge current in Amps")
-    parser.add_argument("--charge_voltage", type=float, required=True, help="Charge voltage in Volts")
-    parser.add_argument("--cutoff_current", type=float, required=True, help="Cutoff current in Amps")
-    parser.add_argument("--log_file", type=str, required=True, help="Log file name")
-    parser.add_argument("--channel", type=int, default=1, choices=[1, 2, 3], help="Power supply channel")
-    parser.add_argument("--model", type=str, choices=['DP832', 'DP2031'], help="Explicitly specify model (optional, will try auto-detect)")
-    parser.add_argument("--parallel", action='store_true', help="Enable parallel channel mode (DP2031 only)")
-    parser.add_argument("--sense", action='store_true', help="Enable voltage sense (DP2031 only)")
-    parser.add_argument("--resource_name", type=str, required=True, 
-                        help="VISA resource name for the instrument. "
-                             "For TCP/IP, use format 'TCPIP0::IP_ADDRESS::INSTR'. "
-                             "For USB, use format 'USB0::VendorID::ProductID::SerialNumber::INSTR'.")
+    
+    # Helper to retrieve default value from config or None
+    def get_default(key, cast_type=str):
+        val = defaults.get(key)
+        if val is not None:
+            try:
+                # Handle booleans specifically if needed, though 'store_true' usually implies False default
+                if cast_type == bool:
+                    return val.lower() in ('true', 'yes', '1', 'on')
+                return cast_type(val)
+            except ValueError:
+                return None
+        return None
+
+    # Config argument (re-added to show in help)
+    parser.add_argument("--config", type=str, help="Path to configuration file (.conf)")
+
+    # Define arguments. essential: remove required=True, set default from config
+    parser.add_argument("--charge_current", type=float, default=get_default('charge_current', float),
+                        help="Charge current in Amps")
+    parser.add_argument("--charge_voltage", type=float, default=get_default('charge_voltage', float),
+                        help="Charge voltage in Volts")
+    parser.add_argument("--cutoff_current", type=float, default=get_default('cutoff_current', float),
+                        help="Cutoff current in Amps")
+    parser.add_argument("--log_file", type=str, default=get_default('log_file', str),
+                        help="Log file name")
+    
+    # Optional args, check config for defaults too
+    parser.add_argument("--channel", type=int, default=get_default('channel', int) or 1, choices=[1, 2, 3], 
+                        help="Power supply channel")
+    parser.add_argument("--model", type=str, choices=['DP832', 'DP2031'], default=get_default('model', str),
+                        help="Explicitly specify model (optional, will try auto-detect)")
+    parser.add_argument("--parallel", action='store_true', default=get_default('parallel', bool),
+                        help="Enable parallel channel mode (DP2031 only)")
+    parser.add_argument("--sense", action='store_true', default=get_default('sense', bool),
+                        help="Enable voltage sense (DP2031 only)")
+    parser.add_argument("--resource_name", type=str, default=get_default('resource_name', str),
+                        help="VISA resource name for the instrument.")
+
     args = parser.parse_args()
+
+    # Manual validation for required arguments that might be missing from both CLI and Config
+    required_args = ['charge_current', 'charge_voltage', 'cutoff_current', 'log_file', 'resource_name']
+    missing = [arg for arg in required_args if getattr(args, arg) is None]
+    
+    if missing:
+        parser.error(f"The following arguments are required (specify via CLI or Config): {', '.join(missing)}")
 
     # Ensure unique log filename
     args.log_file = get_unique_filename(args.log_file)
