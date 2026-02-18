@@ -299,7 +299,7 @@ def main():
 
                 return line,
 
-            ani = FuncAnimation(fig, update, interval=1000)
+            ani = FuncAnimation(fig, update, interval=1000, cache_frame_data=False)
             plt.show()
 
         else:
@@ -316,63 +316,8 @@ def main():
                 
                 time.sleep(1) # Wait 1 second before next measurement
 
-    except pyvisa.errors.VisaIOError as e:
-        ax.set_ylabel('Voltage (V)')
-        ax.set_title('Battery Charging Voltage')
-        ax.legend()
-        ax.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.3)
-
-        with open(args.log_file, 'w') as f:
-            f.write("Timestamp,Elapsed Time (s),Voltage (V),Current (A),Amp-hours (Ah),Watt-hours (Wh)\n")
-
-        ani = None
-        def update(frame):
-            nonlocal ah_charge, wh_charge, last_time
-            current_time = time.time()
-            elapsed_time = current_time - start_time
-            
-            try:
-                voltage, current = psu.get_measurements(args.channel)
-            except pyvisa.errors.VisaIOError as e:
-                print(f"Error reading from instrument: {e}")
-                # Stop the animation if we can't read from the instrument
-                if ani:
-                    ani.event_source.stop()
-                return line,
-
-            time_delta = current_time - last_time
-            last_time = current_time
-            time_delta_hours = time_delta / 3600
-            ah_charge += current * time_delta_hours
-            wh_charge += voltage * current * time_delta_hours
-
-            time_values.append(elapsed_time)
-            voltage_values.append(voltage)
-            
-            timestamp = datetime.datetime.now().isoformat()
-            with open(args.log_file, 'a') as f:
-                f.write(f"{timestamp},{elapsed_time:.2f},{voltage:.4f},{current:.4f},{ah_charge:.4f},{wh_charge:.4f}\n")
-
-            print(f"Time: {elapsed_time:.1f}s, Voltage: {voltage:.2f}V, Current: {current:.2f}A")
-
-            line.set_data(time_values, voltage_values)
-            ax.relim()
-            ax.autoscale_view()
-            
-            # Explicitly force update of limits if auto-scaling isn't aggressive enough
-            # But with blit=False, relim + autoscale_view should work.
-            # Let's ensure y-axis also scales if voltage changes significantly.
-            
-            if current < args.cutoff_current:
-                print(f"Charging complete. Cutoff current {args.cutoff_current}A reached.")
-                if ani:
-                    ani.event_source.stop()
-
-            return line,
-
-        ani = FuncAnimation(fig, update, interval=1000) # blit=False is default, allows axes to resize
-        plt.show()
-
+    except KeyboardInterrupt:
+        print("\nUser stopped the charging process.")
     except pyvisa.errors.VisaIOError as e:
         print(f"Error connecting to instrument: {e}")
         print("Please check the resource name and connection.")
