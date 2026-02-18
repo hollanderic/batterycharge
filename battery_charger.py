@@ -85,6 +85,8 @@ class RigolPSU:
 
     def set_output(self, channel, state):
         self.instrument.write(f":OUTP CH{channel},{'ON' if state else 'OFF'}")
+        if state:
+            time.sleep(1)
 
     def close(self):
         if hasattr(self, 'instrument'):
@@ -171,6 +173,8 @@ def main():
                         help="Enable voltage sense (DP2031 only)")
     parser.add_argument("--resource_name", type=str, default=get_default('resource_name', str),
                         help="VISA resource name for the instrument.")
+    parser.add_argument("--plot", action='store_true', default=get_default('plot', bool),
+                        help="Enable real-time voltage plot")
 
     args = parser.parse_args()
 
@@ -187,6 +191,7 @@ def main():
 
     psu = None
     try:
+        # ... (connection logic logic omitted from snippet, but it's unchanged until plotting) ...
         # Connect generically first to check IDN if model not specified
         base_psu = RigolPSU(args.resource_name)
         idn = base_psu.idn
@@ -201,15 +206,6 @@ def main():
                 print(f"Warning: Could not auto-detect known model from IDN: {idn}. Defaulting to DP832 behavior.")
                 model = "DP832"
         
-        # We can reuse the base_psu connection by "upgrading" the class instance or just re-instantiating.
-        # Re-instantiating is safer for clean init, but we'd need to close the first one.
-        # However, since RigolPSU __init__ opens the resource, we can just cast the class or wrap it.
-        # Simpler approach: Close base_psu and open the specific one, or just assume the methods work if we stick to one instance
-        # but since we want specific methods like enable_parallel_mode on the specific class, let's use the specific class.
-        # Actually, let's just make the 'psu' variable be the specific class instance.
-        
-        # To avoid re-opening which might fail or be slow, let's just dynamic cast?
-        # Pythonic way: change __class__
         if model == "DP2031":
             base_psu.__class__ = RigolDP2031
             psu = base_psu
@@ -222,8 +218,6 @@ def main():
         if args.parallel:
             if isinstance(psu, RigolDP2031):
                 psu.enable_parallel_mode()
-                # In parallel mode, we usually control via CH1?
-                # If args.channel is not 1, warn user?
                 if args.channel != 1:
                     print("Warning: Parallel mode usually combines CH1+CH2 and is controlled via CH1. Forcing channel to 1.")
                     args.channel = 1
@@ -246,10 +240,83 @@ def main():
         ah_charge = 0
         wh_charge = 0
 
-        plt.style.use('dark_background')
-        fig, ax = plt.subplots()
-        line, = ax.plot([], [], 'c-', label='Voltage')
-        ax.set_xlabel('Time (s)')
+        # Initialize log file
+        with open(args.log_file, 'w') as f:
+            f.write("Timestamp,Elapsed Time (s),Voltage (V),Current (A),Amp-hours (Ah),Watt-hours (Wh)\n")
+
+        def perform_measurement():
+            nonlocal ah_charge, wh_charge, last_time
+            current_time = time.time()
+            elapsed_time = current_time - start_time
+            
+            try:
+                voltage, current = psu.get_measurements(args.channel)
+            except pyvisa.errors.VisaIOError as e:
+                print(f"Error reading from instrument: {e}")
+                return None, None
+
+            time_delta = current_time - last_time
+            last_time = current_time
+            time_delta_hours = time_delta / 3600
+            ah_charge += current * time_delta_hours
+            wh_charge += voltage * current * time_delta_hours
+
+            time_values.append(elapsed_time)
+            voltage_values.append(voltage)
+            
+            timestamp = datetime.datetime.now().isoformat()
+            with open(args.log_file, 'a') as f:
+                f.write(f"{timestamp},{elapsed_time:.2f},{voltage:.4f},{current:.4f},{ah_charge:.4f},{wh_charge:.4f}\n")
+
+            print(f"Time: {elapsed_time:.1f}s, Voltage: {voltage:.2f}V, Current: {current:.2f}A")
+            return voltage, current
+
+        if args.plot:
+            plt.style.use('dark_background')
+            fig, ax = plt.subplots()
+            line, = ax.plot([], [], 'c-', label='Voltage')
+            ax.set_xlabel('Time (s)')
+            ax.set_ylabel('Voltage (V)')
+            ax.set_title('Battery Charging Voltage')
+            ax.legend()
+            ax.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.3)
+
+            ani = None
+            def update(frame):
+                voltage, current = perform_measurement()
+                if voltage is None: # Error
+                    if ani: ani.event_source.stop()
+                    return line,
+
+                line.set_data(time_values, voltage_values)
+                ax.relim()
+                ax.autoscale_view()
+                
+                if current < args.cutoff_current:
+                    print(f"Charging complete. Cutoff current {args.cutoff_current}A reached.")
+                    if ani:
+                        ani.event_source.stop()
+
+                return line,
+
+            ani = FuncAnimation(fig, update, interval=1000)
+            plt.show()
+
+        else:
+            # Headless mode
+            print("Running in headless mode (no plot). Press Ctrl+C to stop.")
+            while True:
+                voltage, current = perform_measurement()
+                if voltage is None:
+                    break
+                
+                if current < args.cutoff_current:
+                    print(f"Charging complete. Cutoff current {args.cutoff_current}A reached.")
+                    break
+                
+                time.sleep(1) # Wait 1 second before next measurement
+
+    except pyvisa.errors.VisaIOError as e:
         ax.set_ylabel('Voltage (V)')
         ax.set_title('Battery Charging Voltage')
         ax.legend()

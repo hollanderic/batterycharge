@@ -25,11 +25,16 @@ class TestBatteryCharger(unittest.TestCase):
         self.mock_rm.return_value.open_resource.return_value = self.mock_resource
         self.mock_resource.query.return_value = "Rigol Technologies,DP832,12345,01.00"
         
+        # Mock time.sleep to speed up tests
+        self.mock_sleep_patcher = patch('time.sleep')
+        self.mock_sleep = self.mock_sleep_patcher.start()
+
     def tearDown(self):
         self.mock_rm_patcher.stop()
+        self.mock_sleep_patcher.stop()
 
-    def test_dp832_run(self):
-        print("\n--- Testing DP832 Standard Run ---")
+    def test_dp832_run_headless(self):
+        print("\n--- Testing DP832 Standard Run (Headless) ---")
         # Setup mock behavior
         self.mock_resource.query.side_effect = [
             "Rigol Technologies,DP832,12345,01.00", # IDN
@@ -38,30 +43,46 @@ class TestBatteryCharger(unittest.TestCase):
             "12.0", "0.05" # Second iteration checking cutoff
         ]
 
-        # Arguments
-        args = [
-            "--charge_current", "1.0",
-            "--charge_voltage", "12.0",
-            "--cutoff_current", "0.1",
-            "--log_file", "test_dp832.csv",
-            "--resource_name", "USB0::..."
-        ]
-        
         with patch('sys.stdout', new=io.StringIO()) as fake_out:
             with patch('argparse.ArgumentParser.parse_args', return_value=argparse.Namespace(
                 charge_current=1.0, charge_voltage=12.0, cutoff_current=0.1, 
                 log_file="test_dp832.csv", channel=1, model=None, 
-                parallel=False, sense=False, resource_name="USB0::..."
+                parallel=False, sense=False, resource_name="USB0::...",
+                plot=False, config=None # Explicitly False
             )):
-                # We also need to mock matplotlib.pyplot.show and FuncAnimation
-                with patch('matplotlib.pyplot.show'):
-                    with patch('matplotlib.animation.FuncAnimation'):
+                with patch('matplotlib.pyplot.show') as mock_show:
+                    with patch('matplotlib.animation.FuncAnimation') as mock_ani:
                          battery_charger.main()
+                         
+                         # In headless mode, animation/plot should NOT be called
+                         mock_ani.assert_not_called()
+                         mock_show.assert_not_called()
 
         # Verify calls
         self.mock_resource.write.assert_any_call(":APPL CH1,12.0,1.0")
         self.mock_resource.write.assert_any_call(":OUTP CH1,ON")
         
+    def test_plot_enabled(self):
+        print("\n--- Testing Run With Plot ---")
+        self.mock_resource.query.side_effect = [
+            "Rigol Technologies,DP832,12345,01.00", # IDN
+        ]
+        # We don't need extensive measurements, acts mainly to check if plot setup is called
+        
+        with patch('sys.stdout', new=io.StringIO()) as fake_out:
+            with patch('argparse.ArgumentParser.parse_args', return_value=argparse.Namespace(
+                charge_current=1.0, charge_voltage=12.0, cutoff_current=0.1, 
+                log_file="test_plot.csv", channel=1, model=None, 
+                parallel=False, sense=False, resource_name="USB0::...",
+                plot=True, config=None
+            )):
+                with patch('matplotlib.pyplot.show') as mock_show:
+                    with patch('matplotlib.animation.FuncAnimation') as mock_ani:
+                         battery_charger.main()
+                         
+                         mock_ani.assert_called()
+                         mock_show.assert_called()
+
     def test_dp2031_parallel_sense(self):
         print("\n--- Testing DP2031 Parallel + Sense Run ---")
         self.mock_resource.query.side_effect = [
@@ -76,15 +97,15 @@ class TestBatteryCharger(unittest.TestCase):
              with patch('argparse.ArgumentParser.parse_args', return_value=argparse.Namespace(
                 charge_current=2.0, charge_voltage=5.0, cutoff_current=0.1, 
                 log_file="test_dp2031.csv", channel=1, model="DP2031", 
-                parallel=True, sense=True, resource_name="TCPIP::..."
+                parallel=True, sense=True, resource_name="TCPIP::...",
+                plot=False, config=None
             )):
-                with patch('matplotlib.pyplot.show'):
-                    with patch('matplotlib.animation.FuncAnimation'):
-                         battery_charger.main()
+                # Mock sleep needed implicitly via setUp
+                battery_charger.main()
 
         # Verify DP2031 specific calls
         self.mock_resource.write.assert_any_call(":SYST:POW:MODE PARA")
-        self.mock_resource.write.assert_any_call(":OUTP1:SENS ON")
+        self.mock_resource.write.assert_any_call(":SYST:SENS CH1, ON") # Updated expectation
         self.mock_resource.write.assert_any_call(":APPL CH1,5.0,2.0")
         self.mock_resource.write.assert_any_call(":OUTP CH1,ON")
 

@@ -96,8 +96,9 @@ resource_name = USB0::0x1AB1::...
     -   **For TCP/IP (Ethernet):** Use a format like `TCPIP0::IP_ADDRESS::INSTR`.
     -   **For USB:** Use a format like `USB0::VendorID::ProductID::SerialNumber::INSTR`.
 -   `--model <str>` (Optional): Explicitly specify the model (`DP832` or `DP2031`). If not provided, the script attempts to auto-detect via `*IDN?`.
--   `--parallel` (Optional): Enable parallel channel mode (DP2031 only). When enabled, channel is forced to 1.
--   `--sense` (Optional): Enable remote voltage sensing (DP2031 only).
+-   `--parallel` (Optional, flag): Enable parallel mode (DP2031 only). Combines channels for higher current.
+-   `--sense` (Optional, flag): Enable voltage sense (DP2031 only). Compensates for voltage drop in cables.
+-   `--plot` (Optional, flag): Enable real-time voltage plot. If omitted, the script runs in headless mode (text output only).
 
 ## Log File Format
 
